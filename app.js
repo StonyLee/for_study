@@ -560,5 +560,9 @@ $('#speed').addEventListener('input', e => {
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { koVoice = null; };
 
 /* ---------- 시작 ---------- */
+const notice = $('#notice');
+const closeNotice = () => { notice.hidden = true; };
+notice.addEventListener('click', closeNotice);
+notice.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') closeNotice(); });
 render();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
