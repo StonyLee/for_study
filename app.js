@@ -7,7 +7,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* ---------- 데이터 ---------- */
 const KEY = 'zzm-data-v1';
-const DEFAULTS = { apiKey: '', voice: 'coral', speed: 1, readAnswer: true, pause: 4, loop: false };
+const DEFAULTS = { apiKey: '', ocrModel: 'gpt-4o', voice: 'coral', speed: 1, readAnswer: true, pause: 4, loop: false };
 let db = load();
 
 function load() {
@@ -200,6 +200,7 @@ function openSettings() {
   const s = S();
   $('#setKey').value = s.apiKey;
   $('#setVoice').value = s.voice;
+  $('#setOcr').value = s.ocrModel;
   $('#setAnswer').checked = s.readAnswer;
   $('#setPause').value = s.pause;
   $('#setLoop').checked = s.loop;
@@ -210,6 +211,7 @@ $('#settingsDlg').addEventListener('close', () => {
   Object.assign(S(), {
     apiKey: $('#setKey').value.trim(),
     voice: $('#setVoice').value,
+    ocrModel: $('#setOcr').value,
     readAnswer: $('#setAnswer').checked,
     pause: Math.max(0, Math.min(30, +$('#setPause').value || 0)),
     loop: $('#setLoop').checked,
@@ -233,16 +235,21 @@ async function recognize(file) {
 }
 
 async function ocrOpenAI(dataUrl) {
-  const prompt = '이 이미지는 학습 교재의 한 페이지입니다. 문제와 정답/해설을 정확하게 텍스트로 옮기고 문제별로 나누세요. ' +
-    '소리 내어 읽어줄 것이므로 문제 번호는 q에서 빼고, 수식이나 기호는 말로 읽기 좋게 풀어 쓰세요(예: x² → x 제곱). 보기(①②③…)는 q 안에 포함하세요. ' +
-    '정답이나 해설이 없으면 a는 빈 문자열. 오직 JSON으로만 답하세요: {"items":[{"q":"...","a":"..."}]}';
+  const prompt = '당신은 OCR 도구입니다. 이 이미지는 학습 교재 페이지입니다. 이미지에 인쇄·필기된 글자를 **한 글자도 바꾸지 말고 보이는 그대로** 옮기세요. ' +
+    '요약, 번역, 맞춤법 교정, 표현 변경, 기호·수식 풀어쓰기, 내용 추가를 절대 하지 마세요. 읽을 수 없는 글자는 [?]로 표시하세요.\n' +
+    '페이지를 문제 단위로 나누고, 각 문제마다 문제 부분과 정답 부분을 구분하세요.\n' +
+    '- no: 문제 번호(예: "3", "3-2"). 없으면 "".\n' +
+    '- q: 문제 본문과 보기(①②③④ 등)까지, 정답/해설 표시가 나오기 전까지의 글자 전부. 문제 번호는 넣지 마세요.\n' +
+    '- a: "정답", "답", "해설", "풀이", "Answer", "▶", "☞" 같은 표시 뒤의 글자 전부(표시 단어 자체는 제외). 정답이 페이지 끝에 모아져 있으면 번호가 맞는 문제의 a에 넣으세요. 정답이 없으면 "".\n' +
+    '문제와 정답을 섞지 마세요. 오직 JSON으로만 답하세요: {"items":[{"no":"","q":"","a":""}]}';
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S().apiKey },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: S().ocrModel,
+      temperature: 0,
       response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: dataUrl } }] }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } }] }],
     }),
   });
   if (!r.ok) throw new Error(await apiError(r));
