@@ -32,6 +32,7 @@ function render() {
   if (view.name === 'home') el.innerHTML = homeHtml();
   else if (view.name === 'chapter') el.innerHTML = chapterHtml();
   else if (view.name === 'review') el.innerHTML = reviewHtml();
+  else if (view.name === 'photo') el.innerHTML = photoHtml();
 }
 
 function homeHtml() {
@@ -137,6 +138,11 @@ document.addEventListener('click', e => {
     }
     case 'cancelReview': go({ name: 'chapter', id: review.chapterId }); break;
     case 'saveReview': saveReview(); break;
+    case 'rotL': photos.rot = (photos.rot + 270) % 360; showPhoto(); break;
+    case 'rotR': photos.rot = (photos.rot + 90) % 360; showPhoto(); break;
+    case 'photoGo': photoGo(); break;
+    case 'photoSkip': photoNext(); break;
+    case 'photoCancel': { const id = photos.chapterId; photos = null; go({ name: 'chapter', id }); break; }
     case 'settings': openSettings(); break;
     case 'toggle': togglePlay(); break;
     case 'prev': skip(-1); break;
@@ -155,20 +161,8 @@ document.addEventListener('change', async e => {
   const files = [...e.target.files];
   e.target.value = '';
   if (!files.length) return;
-  const chId = view.id;
-  const drafts = [];
-  try {
-    for (let i = 0; i < files.length; i++) {
-      busy(`사진 인식 중… (${i + 1}/${files.length})`);
-      drafts.push(...await recognize(files[i]));
-    }
-  } catch (err) {
-    busy(null);
-    alert('사진 인식 실패: ' + err.message);
-    return;
-  }
-  busy(null);
-  startReview(chId, drafts.length ? drafts : [{ q: '', a: '' }]);
+  photos = { chapterId: view.id, files, i: 0, rot: 0, url: '', drafts: [] };
+  showPhoto();
 });
 
 function startReview(chapterId, drafts, editId = null) {
@@ -220,23 +214,67 @@ $('#settingsDlg').addEventListener('close', () => {
 });
 
 /* ---------- 사진 → 텍스트 ---------- */
-async function toDataUrl(file, max = 1800) {
+async function toDataUrl(file, max = 2000, rot = 0) {
   const bmp = await createImageBitmap(file);
   const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
   const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.85);
+  const sideways = rot % 180 !== 0;
+  c.width = sideways ? h : w; c.height = sideways ? w : h;
+  const g = c.getContext('2d');
+  g.translate(c.width / 2, c.height / 2);
+  g.rotate(rot * Math.PI / 180);
+  g.drawImage(bmp, -w / 2, -h / 2, w, h);
+  return c.toDataURL('image/jpeg', 0.9);
 }
 
-async function recognize(file) {
-  const url = await toDataUrl(file);
-  return S().apiKey ? ocrOpenAI(url) : ocrTesseract(url);
+function recognize(dataUrl) {
+  return S().apiKey ? ocrOpenAI(dataUrl) : ocrTesseract(dataUrl);
+}
+
+/* 사진 미리보기: 글자가 바로 서도록 돌린 뒤 인식 */
+let photos = null; // { chapterId, files, i, rot, url, drafts }
+
+async function showPhoto() {
+  busy('사진 불러오는 중…');
+  try { photos.url = await toDataUrl(photos.files[photos.i], 2000, photos.rot); }
+  catch (err) { busy(null); alert('사진을 열 수 없습니다: ' + err.message); return photoDone(); }
+  busy(null);
+  go({ name: 'photo' });
+}
+
+function photoHtml() {
+  return `<h2>사진 ${photos.i + 1} / ${photos.files.length}</h2>
+    <p class="hint">글자가 바로 보이도록 돌려 주세요. 글자가 누워 있으면 엉뚱하게 인식됩니다.</p>
+    <img class="pv" src="${photos.url}" alt="미리보기">
+    <div class="bar"><button data-act="rotL">↺ 왼쪽으로</button><button data-act="rotR">↻ 오른쪽으로</button></div>
+    <div class="bar"><button data-act="photoCancel">취소</button><button data-act="photoSkip">건너뛰기</button><button class="primary" data-act="photoGo">인식하기</button></div>`;
+}
+
+function photoNext() {
+  photos.i++;
+  if (photos.i >= photos.files.length) return photoDone();
+  showPhoto();
+}
+
+function photoDone() {
+  const { chapterId, drafts } = photos;
+  photos = null;
+  startReview(chapterId, drafts.length ? drafts : [{ q: '', a: '' }]);
+}
+
+async function photoGo() {
+  busy('글자 인식 중…');
+  try { photos.drafts.push(...await recognize(photos.url)); }
+  catch (err) { busy(null); alert('사진 인식 실패: ' + err.message); return; }
+  busy(null);
+  photoNext();
 }
 
 async function ocrOpenAI(dataUrl) {
   const prompt = '당신은 OCR 도구입니다. 이 이미지는 학습 교재 페이지입니다. 이미지에 인쇄·필기된 글자를 **한 글자도 바꾸지 말고 보이는 그대로** 옮기세요. ' +
-    '요약, 번역, 맞춤법 교정, 표현 변경, 기호·수식 풀어쓰기, 내용 추가를 절대 하지 마세요. 읽을 수 없는 글자는 [?]로 표시하세요.\n' +
+    '요약, 번역, 맞춤법 교정, 표현 변경, 기호·수식 풀어쓰기, 내용 추가를 절대 하지 마세요. 내용을 이해해서 문장을 채우거나 그럴듯하게 고치지 말고, 눈에 보이는 글자만 옮기세요. 읽을 수 없는 글자는 [?]로 표시하세요.\n' +
+    '사진에 그림자나 기울기가 있어도 글자 자체만 읽으세요. 글자가 누워 있거나 거꾸로라면 추측하지 말고 {"items":[],"error":"rotated"} 로 답하세요.\n' +
     '페이지를 문제 단위로 나누고, 각 문제마다 문제 부분과 정답 부분을 구분하세요.\n' +
     '- no: 문제 번호(예: "3", "3-2"). 없으면 "".\n' +
     '- q: 문제 본문과 보기(①②③④ 등)까지, 정답/해설 표시가 나오기 전까지의 글자 전부. 문제 번호는 넣지 마세요.\n' +
@@ -255,6 +293,7 @@ async function ocrOpenAI(dataUrl) {
   if (!r.ok) throw new Error(await apiError(r));
   const j = await r.json();
   const data = JSON.parse(j.choices[0].message.content);
+  if (data.error === 'rotated') throw new Error('글자가 누워 있어 읽을 수 없습니다. 사진을 돌려서 다시 시도하세요.');
   return (data.items || []).map(x => ({ q: String(x.q || ''), a: String(x.a || '') }));
 }
 
