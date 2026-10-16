@@ -334,7 +334,9 @@ async function apiError(r) {
 const audio = $('#audio');
 const player = { active: false, paused: false, chId: null, idx: 0, loading: false };
 let runId = 0;
-let pending = null; // 현재 재생 중인 구간을 중단시키는 resolve 함수
+let pending = null;   // 현재 재생 구간/묶음을 중단시키는 resolve 함수
+let chunk = null;     // 지금 재생 중인 음성 묶음 (OpenAI 음성 모드)
+let switching = false; // 소스 교체 중에 생기는 pause 이벤트 무시용
 
 const cloud = () => !!S().apiKey;
 
@@ -344,17 +346,18 @@ function hash(s) {
   return (a >>> 0).toString(36) + (b >>> 0).toString(36) + s.length;
 }
 
-const urlCache = new Map();
-function ttsUrl(text) {
+/* 문장 하나의 음성(mp3) — 저장된 것이 있으면 재사용 */
+const memBlobs = new Map();
+function ttsBlob(text) {
   const key = S().voice + '|' + text;
-  if (urlCache.has(key)) return urlCache.get(key);
+  if (memBlobs.has(key)) return memBlobs.get(key);
   const p = (async () => {
     const reqKey = location.origin + '/__tts/' + hash(key);
     let store = null;
     try { store = window.caches ? await caches.open('zzm-tts') : null; } catch { }
     if (store) {
       const hit = await store.match(reqKey);
-      if (hit) return URL.createObjectURL(await hit.blob());
+      if (hit) return hit.blob();
     }
     const r = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
@@ -370,42 +373,127 @@ function ttsUrl(text) {
     if (!r.ok) throw new Error(await apiError(r));
     const blob = await r.blob();
     if (store) { try { await store.put(reqKey, new Response(blob, { headers: { 'Content-Type': 'audio/mpeg' } })); } catch { } }
-    return URL.createObjectURL(blob);
+    return blob;
   })();
-  urlCache.set(key, p);
-  p.catch(() => urlCache.delete(key));
+  memBlobs.set(key, p);
+  p.then(() => { if (window.caches) memBlobs.delete(key); }, () => memBlobs.delete(key));
   return p;
 }
 
-const silenceCache = new Map();
-function silenceUrl(sec) {
-  if (silenceCache.has(sec)) return silenceCache.get(sec);
-  const rate = 8000, n = Math.max(1, Math.round(rate * sec));
-  const buf = new DataView(new ArrayBuffer(44 + n));
-  const w = (o, s) => [...s].forEach((c, i) => buf.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF'); buf.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); buf.setUint32(16, 16, true);
-  buf.setUint16(20, 1, true); buf.setUint16(22, 1, true); buf.setUint32(24, rate, true); buf.setUint32(28, rate, true);
-  buf.setUint16(32, 1, true); buf.setUint16(34, 8, true); w(36, 'data'); buf.setUint32(40, n, true);
-  for (let i = 0; i < n; i++) buf.setUint8(44 + i, 128);
-  const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-  silenceCache.set(sec, url);
-  return url;
+/* mp3 → 소리 데이터(24kHz 모노) */
+const RATE = 24000;
+let decCtx;
+async function ttsPcm(text) {
+  const blob = await ttsBlob(text);
+  decCtx ||= new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, RATE);
+  const buf = await decCtx.decodeAudioData(await blob.arrayBuffer());
+  return buf.getChannelData(0);
 }
 
-let speedable = false; // 현재 재생 구간이 읽기(true)인지 쉬는 구간(false)인지
-function playUrl(url, rate, isSpeech) {
-  speedable = !!isSpeech;
+// 쉬는 구간: 완전한 무음 대신 사람 귀에는 안 들리는 아주 작은 잡음을 넣어 브라우저가 재생을 멈추지 않게 함
+function quiet(sec) {
+  const a = new Float32Array(Math.max(1, Math.round(sec * RATE)));
+  for (let k = 0; k < a.length; k++) a[k] = (Math.random() - 0.5) * (8 / 32768);
+  return a;
+}
+
+function segmentsOf(it, i) {
+  const segs = [{ text: `${i + 1}번. ${it.q}` }];
+  if (S().readAnswer && it.a) {
+    if (S().pause > 0) segs.push({ pause: S().pause });
+    segs.push({ text: `정답. ${it.a}` });
+  }
+  segs.push({ pause: 1.5 });
+  return segs;
+}
+
+function nextAfter(ch, i) {
+  const n = i + 1;
+  if (n < ch.items.length) return n;
+  return S().loop && ch.items.length ? 0 : null;
+}
+
+/* 여러 문제(문제·쉬는 시간·정답)를 하나의 연속된 음성 파일로 합침 */
+async function buildChunk(chId, start, minChars) {
+  const ch = chapterOf(chId);
+  if (!ch || start == null || start >= ch.items.length) return null;
+  const idxs = [];
+  let i = start, chars = 0;
+  while (i != null && !idxs.includes(i) && idxs.length < 15 && (idxs.length === 0 || chars < minChars)) {
+    idxs.push(i);
+    const it = ch.items[i];
+    chars += it.q.length + (S().readAnswer ? it.a.length : 0);
+    i = nextAfter(ch, i);
+  }
+  const speed = S().speed;
+  const perItem = await Promise.all(idxs.map(k =>
+    Promise.all(segmentsOf(ch.items[k], k).map(s => s.text ? ttsPcm(s.text) : quiet(s.pause * speed)))));
+
+  const parts = [], bounds = [];
+  let samples = 0;
+  perItem.forEach(segs => {
+    bounds.push(samples / RATE);
+    segs.forEach(p => { parts.push(p); samples += p.length; });
+  });
+
+  const wav = new DataView(new ArrayBuffer(44 + samples * 2));
+  const w = (o, s) => [...s].forEach((c, k) => wav.setUint8(o + k, c.charCodeAt(0)));
+  w(0, 'RIFF'); wav.setUint32(4, 36 + samples * 2, true); w(8, 'WAVEfmt '); wav.setUint32(16, 16, true);
+  wav.setUint16(20, 1, true); wav.setUint16(22, 1, true); wav.setUint32(24, RATE, true); wav.setUint32(28, RATE * 2, true);
+  wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); w(36, 'data'); wav.setUint32(40, samples * 2, true);
+  let o = 44;
+  for (const p of parts) {
+    for (let k = 0; k < p.length; k++) {
+      const v = Math.max(-1, Math.min(1, p[k]));
+      wav.setInt16(o, v < 0 ? v * 32768 : v * 32767, true);
+      o += 2;
+    }
+  }
+  return { url: URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })), idxs, bounds, nextIdx: i };
+}
+
+function playChunk(c) {
   return new Promise(res => {
     pending = res;
+    switching = true;
     audio.onended = () => res('end');
     audio.onerror = () => res('error');
-    audio.defaultPlaybackRate = rate;
-    audio.src = url;
-    audio.playbackRate = rate;
-    audio.play().then(() => { audio.playbackRate = rate; }).catch(() => res('error'));
+    audio.ontimeupdate = () => trackIdx(c);
+    audio.defaultPlaybackRate = S().speed;
+    audio.src = c.url;
+    audio.playbackRate = S().speed;
+    audio.play().then(() => { audio.playbackRate = S().speed; }).catch(() => res('error'));
   });
 }
 
+function trackIdx(c) {
+  const t = audio.currentTime + 0.05;
+  let k = 0;
+  while (k + 1 < c.bounds.length && c.bounds[k + 1] <= t) k++;
+  const idx = c.idxs[k];
+  if (idx !== player.idx) { player.idx = idx; updatePlayer(); refreshHighlight(); }
+}
+
+async function runCloud(token, chId, start) {
+  player.loading = true; updatePlayer();
+  let cur = await buildChunk(chId, start, 250);
+  player.loading = false;
+  while (cur && token === runId) {
+    chunk = cur;
+    player.idx = cur.idxs[0]; updatePlayer(); refreshHighlight();
+    // 지금 묶음이 재생되는 동안 다음 묶음을 미리 만들어 둠
+    const nextP = cur.nextIdx != null ? buildChunk(chId, cur.nextIdx, 1500) : null;
+    if (nextP) nextP.catch(() => { });
+    const r = await playChunk(cur);
+    if (token !== runId) return;
+    if (r === 'error') throw new Error('재생 실패');
+    const done = cur;
+    cur = nextP ? await nextP : null;
+    URL.revokeObjectURL(done.url);
+  }
+}
+
+/* ---- 무료 모드: 브라우저 기본 음성 (화면이 꺼지면 끊길 수 있음) ---- */
 let koVoice;
 function pickKoVoice() {
   if (koVoice) return koVoice;
@@ -428,37 +516,22 @@ function wait(sec) {
   return new Promise(res => { pending = res; setTimeout(() => res('end'), sec * 1000); });
 }
 
-async function playSegment(seg, token) {
-  if (seg.pause) {
-    if (cloud()) return playUrl(silenceUrl(seg.pause), 1);
-    return wait(seg.pause);
+async function runLocal(token, chId, start) {
+  let i = start;
+  while (token === runId) {
+    const ch = chapterOf(chId);
+    if (!ch) break;
+    if (i >= ch.items.length) { if (S().loop && ch.items.length) i = 0; else break; }
+    player.idx = i; updatePlayer(); refreshHighlight();
+    for (const seg of segmentsOf(ch.items[i], i)) {
+      if (token !== runId) return;
+      await (seg.text ? speak(seg.text) : wait(seg.pause));
+    }
+    i++;
   }
-  if (cloud()) {
-    player.loading = true; updatePlayer();
-    const url = await ttsUrl(seg.text);
-    player.loading = false;
-    if (token !== runId) return 'abort';
-    updatePlayer();
-    return playUrl(url, S().speed, true);
-  }
-  return speak(seg.text);
 }
 
-function segmentsOf(it, i) {
-  const segs = [{ text: `${i + 1}번. ${it.q}` }];
-  if (S().readAnswer && it.a) {
-    if (S().pause > 0) segs.push({ pause: S().pause });
-    segs.push({ text: `정답. ${it.a}` });
-  }
-  segs.push({ pause: 1.5 });
-  return segs;
-}
-
-function prefetch(it, i) {
-  if (!cloud() || !it) return;
-  segmentsOf(it, i).forEach(s => s.text && ttsUrl(s.text).catch(() => { }));
-}
-
+/* ---- 공통 제어 ---- */
 async function startPlay(chId, start) {
   stopPlay(true);
   const token = ++runId;
@@ -467,25 +540,8 @@ async function startPlay(chId, start) {
   $('#speed').value = S().speed; $('#speedOut').textContent = S().speed.toFixed(2) + '×';
   setupMediaSession();
   updatePlayer();
-
   try {
-    let i = start;
-    while (token === runId) {
-      const ch = chapterOf(chId);
-      if (!ch) break;
-      if (i >= ch.items.length) { if (S().loop && ch.items.length) i = 0; else break; }
-      if (i < 0) i = 0;
-      player.idx = i; updatePlayer(); refreshHighlight();
-      const it = ch.items[i];
-      prefetch(it, i); prefetch(ch.items[i + 1], i + 1);
-      for (const seg of segmentsOf(it, i)) {
-        if (token !== runId) return;
-        const r = await playSegment(seg, token);
-        if (token !== runId) return;
-        if (r === 'error') throw new Error('재생 실패');
-      }
-      i++;
-    }
+    await (cloud() ? runCloud(token, chId, start) : runLocal(token, chId, start));
   } catch (err) {
     if (token === runId) alert('읽기 오류: ' + err.message);
   }
@@ -493,6 +549,7 @@ async function startPlay(chId, start) {
 }
 
 function interrupt() {
+  switching = true;
   try { audio.pause(); } catch { }
   try { speechSynthesis.cancel(); } catch { }
   if (pending) { const r = pending; pending = null; r('abort'); }
@@ -501,6 +558,7 @@ function interrupt() {
 function stopPlay(silent) {
   runId++;
   interrupt();
+  chunk = null;
   Object.assign(player, { active: false, paused: false, loading: false });
   if (!silent) { $('#player').hidden = true; refreshHighlight(); }
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
@@ -509,8 +567,17 @@ function stopPlay(silent) {
 function skip(d) {
   if (!player.active) return;
   const ch = chapterOf(player.chId);
-  const next = Math.max(0, Math.min(ch.items.length - 1, player.idx + d));
-  startPlay(player.chId, next);
+  if (!ch) return;
+  const target = Math.max(0, Math.min(ch.items.length - 1, player.idx + d));
+  if (cloud() && chunk && !player.loading) {
+    const k = chunk.idxs.indexOf(target);
+    if (k >= 0) {
+      audio.currentTime = chunk.bounds[k];
+      player.idx = target; updatePlayer(); refreshHighlight();
+      return;
+    }
+  }
+  startPlay(player.chId, target);
 }
 
 function togglePlay() {
@@ -526,7 +593,7 @@ function updatePlayer() {
   const ch = chapterOf(player.chId);
   const it = ch && ch.items[player.idx];
   $('#nowTitle').textContent = `${ch ? ch.name : ''} · ${player.idx + 1}번`;
-  $('#nowSub').textContent = player.loading ? '음성 불러오는 중…' : (it ? it.q : '');
+  $('#nowSub').textContent = player.loading ? '음성 준비 중…' : (it ? it.q : '');
   $('#btnToggle').textContent = player.paused ? '▶' : '⏸';
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: `${player.idx + 1}번 문제`, artist: ch ? ch.name : '', album: '찍고 듣는 공부 메모' });
@@ -538,6 +605,15 @@ function refreshHighlight() {
   if (view.name !== 'chapter') return;
   document.querySelectorAll('.item').forEach((el, i) => el.classList.toggle('on', player.active && player.chId === view.id && i === player.idx));
 }
+
+// 블루투스/잠금화면 등 바깥에서 재생·정지가 눌린 경우 화면 상태를 맞춤
+audio.addEventListener('playing', () => { switching = false; });
+audio.addEventListener('pause', () => {
+  if (player.active && cloud() && !switching && !audio.ended && !player.paused) { player.paused = true; updatePlayer(); }
+});
+audio.addEventListener('play', () => {
+  if (player.active && cloud() && player.paused) { player.paused = false; updatePlayer(); }
+});
 
 let msReady = false;
 function setupMediaSession() {
@@ -554,7 +630,7 @@ $('#speed').addEventListener('input', e => {
   const v = +e.target.value;
   S().speed = v; save();
   $('#speedOut').textContent = v.toFixed(2) + '×';
-  if (speedable) audio.playbackRate = v;
+  if (cloud()) audio.playbackRate = v;
 });
 
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { koVoice = null; };
