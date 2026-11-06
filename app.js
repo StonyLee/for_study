@@ -685,4 +685,9 @@ const closeNotice = () => { notice.hidden = true; };
 notice.addEventListener('click', closeNotice);
 notice.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') closeNotice(); });
 render();
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  // 새 버전이 설치되면 (재생 중이 아닐 때) 자동으로 새로고침해서 최신 화면으로 바꿈
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !player.active) location.reload(); });
+  navigator.serviceWorker.register('sw.js').catch(() => { });
+}
