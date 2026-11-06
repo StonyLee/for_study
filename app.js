@@ -143,6 +143,8 @@ document.addEventListener('click', e => {
     case 'photoGo': photoGo(); break;
     case 'photoSkip': photoNext(); break;
     case 'photoCancel': { const id = photos.chapterId; photos = null; go({ name: 'chapter', id }); break; }
+    case 'exportData': exportData(); break;
+    case 'importData': $('#importFile').click(); break;
     case 'settings': openSettings(); break;
     case 'toggle': togglePlay(); break;
     case 'prev': skip(-1); break;
@@ -156,7 +158,49 @@ document.addEventListener('input', e => {
   if (t.matches('textarea[data-f]')) review.drafts[+t.dataset.i][t.dataset.f] = t.value;
 });
 
+/* ---------- 백업 / 가져오기 (API 키 제외) ---------- */
+async function exportData() {
+  const d = new Date();
+  const name = `공부메모-백업-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+  const body = JSON.stringify({ app: 'zzm', version: 1, chapters: db.chapters }, null, 1);
+  const file = new File([body], name, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function importData(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { return alert('백업 파일을 읽을 수 없습니다.'); }
+  if (!data || data.app !== 'zzm' || !Array.isArray(data.chapters)) return alert('이 앱의 백업 파일이 아닙니다.');
+  let addedCh = 0, addedIt = 0;
+  for (const c of data.chapters) {
+    if (!c || !c.id || !Array.isArray(c.items)) continue;
+    let mine = chapterOf(c.id);
+    if (!mine) { mine = { id: c.id, name: String(c.name || '챕터'), items: [] }; db.chapters.push(mine); addedCh++; }
+    const have = new Set(mine.items.map(x => x.id));
+    for (const it of c.items) {
+      if (!it || !it.id || have.has(it.id) || !String(it.q || '').trim()) continue;
+      mine.items.push({ id: String(it.id), q: String(it.q), a: String(it.a || '') });
+      addedIt++;
+    }
+  }
+  save(); render();
+  $('#settingsDlg').close('cancel');
+  alert(`가져왔습니다: 새 챕터 ${addedCh}개, 새 문제 ${addedIt}개 (이미 있는 문제는 건너뜀)`);
+}
+
 document.addEventListener('change', async e => {
+  if (e.target.id === 'importFile') {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) importData(f);
+    return;
+  }
   if (e.target.id !== 'photo') return;
   const files = [...e.target.files];
   e.target.value = '';

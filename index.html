@@ -70,6 +70,12 @@
     <label>문제 읽고 정답 전 쉬는 시간(초)
       <input id="setPause" type="number" min="0" max="30" step="1"></label>
     <label class="row"><input id="setLoop" type="checkbox"> 챕터 끝나면 처음부터 반복</label>
+    <label>백업 / 다른 기기로 옮기기 <small>(챕터와 문제만. API 키와 음성은 포함되지 않음)</small></label>
+    <div class="btns" style="justify-content:flex-start">
+      <button type="button" data-act="exportData">📤 내보내기</button>
+      <button type="button" data-act="importData">📥 가져오기</button>
+    </div>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
     <p class="hint">API 키가 없으면 무료 인식(정확도 낮음)과 브라우저 기본 음성을 사용하며, 화면이 꺼지면 소리가 끊길 수 있습니다.</p>
     <div class="btns"><button value="cancel">취소</button><button value="ok" class="primary">저장</button></div>
   </form>
