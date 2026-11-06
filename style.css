@@ -1,12 +1,12 @@
 :root{
   color-scheme:light;
-  --accent:#1b857a;      /* 차분한 청록 */
-  --accent-soft:#eaf6f4; /* 아주 연한 청록 */
-  --bg:#f7faf9;
+  --accent:#2a74dd;      /* 밝은 파랑 */
+  --accent-soft:#eaf3ff; /* 아주 연한 파랑 */
+  --bg:#f6f9ff;
   --card:#ffffff;
-  --tx:#1f2d2b;
-  --mut:#6b7c79;
-  --line:#e4ecea;
+  --tx:#1b2a3d;
+  --mut:#66788f;
+  --line:#e1ebf8;
   --danger:#c4473d;
   --radius:16px;
 }
@@ -14,7 +14,7 @@
 body{margin:0;background:var(--bg);color:var(--tx);font:17px/1.55 system-ui,-apple-system,"Malgun Gothic",sans-serif;-webkit-tap-highlight-color:transparent}
 
 /* 상단 */
-.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + env(safe-area-inset-top)) 20px 12px;background:rgba(247,250,249,.94);backdrop-filter:blur(8px)}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + env(safe-area-inset-top)) 20px 12px;background:rgba(246,249,255,.94);backdrop-filter:blur(8px)}
 .top h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.2px}
 button.link{border:0;background:none;color:var(--accent);font-weight:600;padding:8px 4px;min-height:40px}
 main{padding:6px 20px 230px;max-width:720px;margin:0 auto}
@@ -33,7 +33,7 @@ h2{font-size:20px;margin:10px 0 6px}
 .empty{color:var(--mut);text-align:center;padding:40px 0}
 
 /* 챕터 / 문제 카드 */
-.card,.item,.draft{background:var(--card);border-radius:var(--radius);box-shadow:0 1px 3px rgba(31,45,43,.06),0 0 0 1px var(--line)}
+.card,.item,.draft{background:var(--card);border-radius:var(--radius);box-shadow:0 1px 3px rgba(27,42,61,.06),0 0 0 1px var(--line)}
 .card{display:flex;align-items:center;gap:10px;padding:16px;margin:10px 0}
 .card .grow{flex:1;min-width:0}
 .card .name{font-weight:600}
@@ -53,10 +53,10 @@ textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:12px
 textarea:focus,dialog input:focus,dialog select:focus{outline:2px solid var(--accent);outline-offset:0}
 .draft{padding:14px;margin:12px 0}
 .draft label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}
-.pv{width:100%;max-height:60vh;object-fit:contain;background:#eef3f2;border-radius:12px}
+.pv{width:100%;max-height:60vh;object-fit:contain;background:#eef4fc;border-radius:12px}
 
 /* 재생바 */
-.player{position:fixed;left:0;right:0;bottom:0;z-index:8;background:#fff;border-radius:20px 20px 0 0;padding:14px 20px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px rgba(31,45,43,.10)}
+.player{position:fixed;left:0;right:0;bottom:0;z-index:8;background:#fff;border-radius:20px 20px 0 0;padding:14px 20px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px rgba(27,42,61,.10)}
 .now{display:flex;flex-direction:column;min-height:42px}
 .now b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .now span{color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -86,7 +86,7 @@ textarea:focus,dialog input:focus,dialog select:focus{outline:2px solid var(--ac
 
 /* 설정 창 */
 dialog{border:0;border-radius:20px;padding:22px;width:min(92vw,420px);background:#fff;color:var(--tx)}
-dialog::backdrop{background:rgba(31,45,43,.35)}
+dialog::backdrop{background:rgba(27,42,61,.35)}
 dialog h2{margin:0 0 8px}
 dialog label{display:block;margin:14px 0;font-weight:600}
 dialog label small{font-weight:400;color:var(--mut)}

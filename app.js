@@ -39,9 +39,8 @@ function homeHtml() {
   const list = db.chapters.map(c => `
     <div class="card" data-act="openChapter" data-id="${c.id}">
       <div class="grow"><div class="name">${esc(c.name)}</div><div class="sub">문제 ${c.items.length}개</div></div>
-      <span>›</span>
     </div>`).join('');
-  return `<div class="bar"><button class="primary" data-act="newChapter">＋ 새 챕터</button></div>
+  return `<div class="bar"><button class="primary" data-act="newChapter">새 챕터 만들기</button></div>
     ${list || '<p class="empty">챕터를 만들고 교재 사진을 찍어 추가해 보세요.</p>'}`;
 }
 
@@ -61,7 +60,7 @@ function chapterHtml() {
         <button data-act="editItem" data-id="${it.id}" aria-label="수정">수정</button>
       </div>
     </div>`).join('');
-  return `<button class="back" data-act="home">‹ 챕터 목록</button>
+  return `<button class="back" data-act="home">챕터 목록으로</button>
     <h2>${esc(ch.name)}</h2>
     <div class="bar">
       <label class="btn primary">사진으로 추가<input id="photo" type="file" accept="image/*" multiple hidden></label>
@@ -88,7 +87,7 @@ function reviewHtml() {
   return `<h2>${review.editId ? '문제 수정' : '인식 결과 확인'}</h2>
     <p class="hint">잘못 인식된 글자를 고친 뒤 저장하세요.</p>
     ${d}
-    <div class="bar">${review.editId ? `<button class="danger" data-act="delItem">이 문제 삭제</button>` : '<button data-act="addDraft">＋ 문제 추가</button>'}</div>
+    <div class="bar">${review.editId ? `<button class="danger" data-act="delItem">이 문제 삭제</button>` : '<button data-act="addDraft">문제 추가</button>'}</div>
     <div class="bar"><button data-act="cancelReview">취소</button><button class="primary" data-act="saveReview">저장</button></div>`;
 }
 
