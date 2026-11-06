@@ -57,21 +57,21 @@ function chapterHtml() {
         ${it.a ? `<div class="a">정답: ${esc(it.a)}</div>` : ''}
       </div>
       <div class="side">
-        <button data-act="playFrom" data-i="${i}" class="primary" aria-label="여기부터 듣기">▶</button>
-        <button data-act="editItem" data-id="${it.id}" aria-label="수정">✎</button>
+        <button data-act="playFrom" data-i="${i}" class="primary" aria-label="여기부터 듣기">듣기</button>
+        <button data-act="editItem" data-id="${it.id}" aria-label="수정">수정</button>
       </div>
     </div>`).join('');
   return `<button class="back" data-act="home">‹ 챕터 목록</button>
     <h2>${esc(ch.name)}</h2>
     <div class="bar">
-      <label class="btn primary">📷 사진으로 추가<input id="photo" type="file" accept="image/*" multiple hidden></label>
-      <button data-act="addManual">✍ 직접 입력</button>
+      <label class="btn primary">사진으로 추가<input id="photo" type="file" accept="image/*" multiple hidden></label>
+      <button data-act="addManual">직접 입력</button>
     </div>
     <div class="bar">
       <button data-act="renameChapter">이름 변경</button>
       <button data-act="delChapter" class="danger">챕터 삭제</button>
     </div>
-    <p class="hint">듣고 싶은 문제의 ▶ 를 누르면 그 문제부터 챕터 끝까지 이어서 읽어줍니다.</p>
+    <p class="hint">듣고 싶은 문제의 "듣기"를 누르면 그 문제부터 챕터 끝까지 이어서 읽어줍니다.</p>
     ${rows || '<p class="empty">아직 문제가 없습니다.</p>'}`;
 }
 
@@ -291,7 +291,7 @@ function photoHtml() {
   return `<h2>사진 ${photos.i + 1} / ${photos.files.length}</h2>
     <p class="hint">글자가 바로 보이도록 돌려 주세요. 글자가 누워 있으면 엉뚱하게 인식됩니다.</p>
     <img class="pv" src="${photos.url}" alt="미리보기">
-    <div class="bar"><button data-act="rotL">↺ 왼쪽으로</button><button data-act="rotR">↻ 오른쪽으로</button></div>
+    <div class="bar"><button data-act="rotL">왼쪽으로 돌리기</button><button data-act="rotR">오른쪽으로 돌리기</button></div>
     <div class="bar"><button data-act="photoCancel">취소</button><button data-act="photoSkip">건너뛰기</button><button class="primary" data-act="photoGo">인식하기</button></div>`;
 }
 
@@ -638,7 +638,7 @@ function updatePlayer() {
   const it = ch && ch.items[player.idx];
   $('#nowTitle').textContent = `${ch ? ch.name : ''} · ${player.idx + 1}번`;
   $('#nowSub').textContent = player.loading ? '음성 준비 중…' : (it ? it.q : '');
-  $('#btnToggle').textContent = player.paused ? '▶' : '⏸';
+  $('#btnToggle').textContent = player.paused ? '재생' : '일시정지';
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: `${player.idx + 1}번 문제`, artist: ch ? ch.name : '', album: '찍고 듣는 공부 메모' });
     navigator.mediaSession.playbackState = player.paused ? 'paused' : 'playing';
