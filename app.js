@@ -75,6 +75,11 @@ function chapterHtml() {
 }
 
 function reviewHtml() {
+  if (review.editId && review.deleted) {
+    return `<h2>문제 삭제</h2>
+      <p class="hint">이 문제가 삭제됩니다. 저장을 누르면 삭제하고 문제 목록으로 돌아갑니다.</p>
+      <div class="bar"><button data-act="undoDelete">삭제 취소</button><button class="primary" data-act="saveReview">저장</button></div>`;
+  }
   const d = review.drafts.map((x, i) => `
     <div class="draft">
       <label>문제 ${i + 1}</label>
@@ -87,7 +92,7 @@ function reviewHtml() {
   return `<h2>${review.editId ? '문제 수정' : '인식 결과 확인'}</h2>
     <p class="hint">잘못 인식된 글자를 고친 뒤 저장하세요.</p>
     ${d}
-    <div class="bar">${review.editId ? `<button class="danger" data-act="delItem">이 문제 삭제</button>` : '<button data-act="addDraft">문제 추가</button>'}</div>
+    ${review.editId ? '' : '<div class="bar"><button data-act="addDraft">문제 추가</button></div>'}
     <div class="bar"><button data-act="cancelReview">취소</button><button class="primary" data-act="saveReview">저장</button></div>`;
 }
 
@@ -124,16 +129,14 @@ document.addEventListener('click', e => {
     }
     case 'playFrom': startPlay(ch.id, +d.i); break;
     case 'addDraft': review.drafts.push({ q: '', a: '' }); render(); break;
-    case 'rmDraft': review.drafts.splice(+d.i, 1); if (!review.drafts.length && !review.editId) review.drafts.push({ q: '', a: '' }); render(); break;
+    case 'undoDelete': review.deleted = false; render(); break;
+    case 'rmDraft':
+      if (review.editId) { review.deleted = true; render(); break; } // 수정 중인 문제: 저장할 때 삭제
+      review.drafts.splice(+d.i, 1); if (!review.drafts.length && !review.editId) review.drafts.push({ q: '', a: '' }); render(); break;
     case 'splitDraft': {
       const parts = splitText(review.drafts[+d.i].q);
       review.drafts.splice(+d.i, 1, ...parts.map(q => ({ q, a: '' })));
       render(); break;
-    }
-    case 'delItem': {
-      const c = chapterOf(review.chapterId);
-      if (confirm('이 문제를 삭제할까요?')) { c.items = c.items.filter(x => x.id !== review.editId); save(); go({ name: 'chapter', id: c.id }); }
-      break;
     }
     case 'cancelReview': go({ name: 'chapter', id: review.chapterId }); break;
     case 'saveReview': saveReview(); break;
@@ -215,6 +218,11 @@ function startReview(chapterId, drafts, editId = null) {
 
 function saveReview() {
   const ch = chapterOf(review.chapterId);
+  if (review.editId && review.deleted) {
+    ch.items = ch.items.filter(x => x.id !== review.editId);
+    save();
+    return go({ name: 'chapter', id: ch.id });
+  }
   const ok = review.drafts.map(d => ({ q: d.q.trim(), a: d.a.trim() })).filter(d => d.q);
   if (review.editId) {
     const it = ch.items.find(x => x.id === review.editId);
