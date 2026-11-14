@@ -25,12 +25,37 @@ const chapterOf = id => db.chapters.find(c => c.id === id);
 let view = { name: 'home' };
 let review = null; // { chapterId, drafts:[{q,a}], editId }
 
-function go(v) { view = v; render(); window.scrollTo(0, 0); }
+// 화면 이동은 브라우저 기록(history)에 쌓아서, 휴대폰 뒤로 가기가 앱 밖이 아니라 이전 화면으로 가게 함
+function go(v) {
+  // 사진 미리보기 → 미리보기/확인 화면, 문제 카드 → 다른 문제 카드는 기록을 새로 쌓지 않고 바꿔 끼움
+  const replace = (view.name === 'photo' && (v.name === 'photo' || v.name === 'review')) || (view.name === 'card' && v.name === 'card');
+  view = v;
+  history[replace ? 'replaceState' : 'pushState']({ v }, '');
+  render();
+  window.scrollTo(0, 0);
+}
+let afterDelete = false;
+function back() { history.back(); }
+function redirect(v) { view = v; history.replaceState({ v }, ''); }
+
+window.addEventListener('popstate', e => {
+  let v = (e.state && e.state.v) || { name: 'home' };
+  // 사진·확인 화면은 작업 중인 데이터가 있을 때만 다시 열 수 있음
+  if ((v.name === 'review' && !review) || (v.name === 'photo' && !photos)) v = v.id ? { name: 'chapter', id: v.id } : { name: 'home' };
+  // 카드에서 문제를 삭제하고 돌아온 경우: 그 자리에 다음 문제 카드가 뜨지 않게 목록으로
+  if (afterDelete && v.name === 'card') { afterDelete = false; history.back(); return; }
+  afterDelete = false;
+  view = v;
+  render();
+  window.scrollTo(0, 0);
+});
+history.replaceState({ v: view }, '');
 
 function render() {
   const el = $('#view');
   if (view.name === 'home') el.innerHTML = homeHtml();
   else if (view.name === 'chapter') el.innerHTML = chapterHtml();
+  else if (view.name === 'card') el.innerHTML = cardHtml();
   else if (view.name === 'review') el.innerHTML = reviewHtml();
   else if (view.name === 'photo') el.innerHTML = photoHtml();
 }
@@ -46,12 +71,12 @@ function homeHtml() {
 
 function chapterHtml() {
   const ch = chapterOf(view.id);
-  if (!ch) return go({ name: 'home' });
+  if (!ch) { redirect({ name: 'home' }); return homeHtml(); }
   const playing = player.active && player.chId === ch.id;
   const rows = ch.items.map((it, i) => `
     <div class="item ${playing && player.idx === i ? 'on' : ''}">
       <div class="no">${i + 1}</div>
-      <div class="txt" data-act="playFrom" data-i="${i}">
+      <div class="txt" data-act="openCard" data-i="${i}">
         <div class="q">${esc(it.q)}</div>
         ${it.a ? `<div class="a">정답: ${esc(it.a)}</div>` : ''}
       </div>
@@ -70,8 +95,27 @@ function chapterHtml() {
       <button data-act="renameChapter">이름 변경</button>
       <button data-act="delChapter" class="danger">챕터 삭제</button>
     </div>
-    <p class="hint">듣고 싶은 문제의 "듣기"를 누르면 그 문제부터 챕터 끝까지 이어서 읽어줍니다.</p>
+    <p class="hint">문제를 누르면 문제 카드가 열리고, "듣기"를 누르면 그 문제부터 챕터 끝까지 이어서 읽어줍니다.</p>
     ${rows || '<p class="empty">아직 문제가 없습니다.</p>'}`;
+}
+
+function cardHtml() {
+  const ch = chapterOf(view.id);
+  const it = ch && ch.items[view.i];
+  if (!it) { redirect(ch ? { name: 'chapter', id: ch.id } : { name: 'home' }); return ch ? chapterHtml() : homeHtml(); }
+  return `<button class="back" data-act="home">문제 목록으로</button>
+    <p class="hint">${esc(ch.name)} · ${view.i + 1} / ${ch.items.length}</p>
+    <div class="qcard">
+      <div class="label">문제</div>
+      <div class="body">${esc(it.q)}</div>
+      ${it.a ? `<div class="label">정답</div><div class="body ans">${esc(it.a)}</div>` : ''}
+    </div>
+    <div class="bar"><button class="primary" data-act="playFrom" data-i="${view.i}">여기부터 듣기</button></div>
+    <div class="bar">
+      <button data-act="cardPrev" ${view.i === 0 ? 'disabled' : ''}>이전 문제</button>
+      <button data-act="cardNext" ${view.i >= ch.items.length - 1 ? 'disabled' : ''}>다음 문제</button>
+      <button data-act="editItem" data-id="${it.id}">수정</button>
+    </div>`;
 }
 
 function reviewHtml() {
@@ -101,9 +145,12 @@ document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]');
   if (!t) return;
   const d = t.dataset;
-  const ch = view.name === 'chapter' ? chapterOf(view.id) : null;
+  const ch = (view.name === 'chapter' || view.name === 'card') ? chapterOf(view.id) : null;
   switch (d.act) {
-    case 'home': go({ name: 'home' }); break;
+    case 'home': back(); break;
+    case 'openCard': go({ name: 'card', id: ch.id, i: +d.i }); break;
+    case 'cardPrev': go({ name: 'card', id: ch.id, i: view.i - 1 }); break;
+    case 'cardNext': go({ name: 'card', id: ch.id, i: view.i + 1 }); break;
     case 'openChapter': go({ name: 'chapter', id: d.id }); break;
     case 'newChapter': {
       const name = prompt('챕터 이름');
@@ -118,7 +165,7 @@ document.addEventListener('click', e => {
     case 'delChapter':
       if (confirm(`'${ch.name}' 챕터와 문제 ${ch.items.length}개를 삭제할까요?`)) {
         if (player.chId === ch.id) stopPlay();
-        db.chapters = db.chapters.filter(c => c !== ch); save(); go({ name: 'home' });
+        db.chapters = db.chapters.filter(c => c !== ch); save(); back();
       }
       break;
     case 'addManual': startReview(ch.id, [{ q: '', a: '' }]); break;
@@ -138,13 +185,13 @@ document.addEventListener('click', e => {
       review.drafts.splice(+d.i, 1, ...parts.map(q => ({ q, a: '' })));
       render(); break;
     }
-    case 'cancelReview': go({ name: 'chapter', id: review.chapterId }); break;
+    case 'cancelReview': review = null; back(); break;
     case 'saveReview': saveReview(); break;
     case 'rotL': photos.rot = (photos.rot + 270) % 360; showPhoto(); break;
     case 'rotR': photos.rot = (photos.rot + 90) % 360; showPhoto(); break;
     case 'photoGo': photoGo(); break;
     case 'photoSkip': photoNext(); break;
-    case 'photoCancel': { const id = photos.chapterId; photos = null; go({ name: 'chapter', id }); break; }
+    case 'photoCancel': photos = null; back(); break;
     case 'exportData': exportData(); break;
     case 'importData': $('#importFile').click(); break;
     case 'settings': openSettings(); break;
@@ -213,7 +260,7 @@ document.addEventListener('change', async e => {
 
 function startReview(chapterId, drafts, editId = null) {
   review = { chapterId, drafts, editId };
-  go({ name: 'review' });
+  go({ name: 'review', id: chapterId });
 }
 
 function saveReview() {
@@ -221,7 +268,9 @@ function saveReview() {
   if (review.editId && review.deleted) {
     ch.items = ch.items.filter(x => x.id !== review.editId);
     save();
-    return go({ name: 'chapter', id: ch.id });
+    review = null;
+    afterDelete = true;
+    return back();
   }
   const ok = review.drafts.map(d => ({ q: d.q.trim(), a: d.a.trim() })).filter(d => d.q);
   if (review.editId) {
@@ -232,7 +281,8 @@ function saveReview() {
     ch.items.push(...ok.map(d => ({ id: uid(), ...d })));
   }
   save();
-  go({ name: 'chapter', id: ch.id });
+  review = null;
+  back();
 }
 
 function busy(text) {
@@ -291,7 +341,7 @@ async function showPhoto() {
   try { photos.url = await toDataUrl(photos.files[photos.i], 2000, photos.rot); }
   catch (err) { busy(null); alert('사진을 열 수 없습니다: ' + err.message); return photoDone(); }
   busy(null);
-  go({ name: 'photo' });
+  go({ name: 'photo', id: photos.chapterId });
 }
 
 function photoHtml() {

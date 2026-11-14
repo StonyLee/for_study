@@ -48,6 +48,14 @@ h2{font-size:20px;margin:10px 0 6px}
 .item .side{display:flex;flex-direction:column;gap:8px}
 .item .side button{padding:8px 14px;min-height:40px;font-size:15px}
 
+/* 문제 카드 */
+.item .txt{cursor:pointer}
+.qcard{background:var(--card);border-radius:var(--radius);padding:20px;margin:10px 0;box-shadow:0 1px 3px rgba(27,42,61,.06),0 0 0 1px var(--line)}
+.qcard .label{font-size:13px;font-weight:700;color:var(--accent);margin:0 0 6px}
+.qcard .body{font-size:19px;line-height:1.7;white-space:pre-wrap;margin-bottom:18px}
+.qcard .body.ans{font-size:17px;color:var(--tx);background:var(--accent-soft);border-radius:12px;padding:14px;margin-bottom:0}
+button:disabled{opacity:.4}
+
 /* 입력 */
 textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;color:var(--tx);min-height:84px;resize:vertical}
 textarea:focus,dialog input:focus,dialog select:focus{outline:2px solid var(--accent);outline-offset:0}
